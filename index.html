@@ -75,6 +75,7 @@
     }
     .item-preview {
       padding: 0.32em 0.60em;
+      border: 0;
       font-size: clamp(38px, 10vw, 92px);
     }
     .inventory {
@@ -101,6 +102,9 @@
     }
     .inventory-slot:empty { border-color: #aaa; }
     .inventory-slot img { display:block; width:42px; max-width:100%; height:42px; object-fit:contain; }
+    .item-acquired { display:block; margin-top:12px; font-size:clamp(16px,2vw,22px); white-space:normal; }
+    .placed.fading { animation:fade-placed 1.5s linear forwards; }
+    @keyframes fade-placed { from { opacity:0; } to { opacity:1; } }
     .item-preview img { display:block; width:min(340px,70vw,65dvh); height:min(340px,70vw,65dvh); object-fit:contain; }
     .placed.eyeball { width:2.8%; aspect-ratio:1; border-radius:50%; background:#c3d8e3; border:1px solid #344958; box-shadow:inset 0 0 0 3px #e8f1f4; }
     .player { z-index: 2; }
@@ -111,7 +115,7 @@
     .door-view > img { display:block; height:100%; max-width:100%; object-fit:contain; }
     .placed { position:absolute; transform:translate(-50%,-50%); }
     .placed.skull { width:18%; }
-    .narrative { position:fixed; left:50%; bottom:5%; transform:translateX(-50%); width:min(650px,70vw); min-height:95px; border:2px solid #333; background:#fff; padding:20px 24px; font-size:clamp(16px,2vw,22px); }
+    .narrative { white-space:pre-line; position:fixed; left:50%; bottom:5%; transform:translateX(-50%); width:min(650px,70vw); min-height:95px; border:2px solid #333; background:#fff; padding:20px 24px; font-size:clamp(16px,2vw,22px); }
     .mode-screen { position:fixed; inset:0; z-index:3; display:grid; place-items:center; background:#fff; }
     .mode-panel { display:grid; gap:14px; width:min(340px,85vw); text-align:center; }
     .mode-panel h1 { margin:0 0 8px; font-size:22px; }
@@ -128,12 +132,10 @@
   </style>
 </head>
 <body>
-  <div class="mode-screen" id="mode-screen" role="dialog" aria-label="选择放置方式" aria-modal="true">
-    <div class="mode-panel" role="radiogroup" aria-label="请选择">
-      <h1>请选择</h1>
-      <button type="button" role="radio" aria-checked="true" id="mode-instant">无放道具动作</button>
-      <button type="button" role="radio" aria-checked="false" id="mode-manual">有放道具动作</button>
-      <p>W / S 选择，E 确认</p>
+  <div class="mode-screen" id="mode-screen" role="dialog" aria-label="Game controls" aria-modal="true">
+    <div class="mode-panel">
+      <h1>WASD + E</h1>
+      <button type="button" id="start-button">PRESS E to Start</button>
     </div>
   </div>
   <main class="scene" aria-label="门交互原型">
@@ -159,7 +161,7 @@
   </aside>
   <script>
     const modeScreen = document.getElementById('mode-screen');
-    const modeButtons = [document.getElementById('mode-instant'), document.getElementById('mode-manual')];
+    const startButton = document.getElementById('start-button');
     const floor = document.getElementById('floor');
     const player = document.getElementById('player');
     const overlay = document.getElementById('overlay');
@@ -188,7 +190,7 @@
     const door = {x:.5,y:0,element:document.getElementById('door')};
     door.prompt = door.element.querySelector('.prompt');
     let levelIndex = 0, items = [], slots = [], targets = [];
-    let mode = null, selectedMode = 0;
+    let mode = null;
     let held = [], placed = new Set(), nearby = null, open = null;
     let phase = '', doorOpen = false, previousTime = null;
     let dialogueLines = [], dialogueIndex = 0, completeAfterDialogue = false;
@@ -212,12 +214,12 @@
       });
     }
     function drawPlaced() {
-      placedArea.replaceChildren();
       for (let levelNumber = 0; levelNumber <= levelIndex; levelNumber++) {
         const sourceLevel = levels[levelNumber];
         sourceLevel.items.forEach((name, index) => {
           if (!placed.has(name)) return;
           if (name === 'skull' && levelIndex > 0) return;
+          if (placedArea.querySelector(`[data-item="${name}"]`)) return;
           const element = document.createElement(name === 'skull' ? 'img' : 'span');
           const isEyeball = name.startsWith('eyeball');
           element.className = name === 'skull' ? 'placed skull' : isEyeball ? 'placed eyeball' : 'placed item-label';
@@ -233,6 +235,7 @@
           if (levelNumber === 0 && levelIndex > 0) {
             location = [{x:50,y:32},{x:24,y:85},{x:78.5,y:73}][index];
           }
+          element.dataset.item = name;
           element.style.left = location.x + '%';
           element.style.top = location.y + '%';
           placedArea.append(element);
@@ -275,6 +278,7 @@
       });
       targets = [door, ...items];
       image.src = level.image;
+      drawPlaced();
       doorOpen = false;
       door.element.classList.remove('open');
       doorway.hidden = true;
@@ -310,33 +314,28 @@
       completeAfterDialogue = complete;
       const currentPlaced = levels[levelIndex].items.some(name => placed.has(name));
       const text = complete || !currentPlaced ? 'narrative words' : 'narrative lost words';
-      dialogueLines = [text + ' 1', text + ' 2'];
+      dialogueLines = mode === 'instant'
+        ? [complete ? 'The gate is now open.\nMore of Cuthbert’s story is coming soon.' : "He's still hoping for more."]
+        : [text + ' 1', text + ' 2'];
       dialogueIndex = 0;
       narrative.textContent = dialogueLines[dialogueIndex];
       narrative.hidden = false;
       phase = 'message';
+      if (mode === 'instant' && !complete) view.classList.add('lifting');
     }
-    function chooseMode(index) {
-      selectedMode = index;
-      mode = index === 0 ? 'instant' : 'manual';
-      modeButtons.forEach((button, buttonIndex) => {
-        button.setAttribute('aria-checked', String(buttonIndex === selectedMode));
-      });
+    function startGame() {
+      mode = 'instant';
       modeScreen.hidden = true;
       keys.clear();
       render();
     }
-    modeButtons.forEach((button, index) => {
-      button.addEventListener('click', () => chooseMode(index));
-    });
+    startButton.addEventListener('click', startGame);
     function interact() {
       if (open === 'ending') {
         placed = new Set();
         closeOverlay();
         loadLevel(0);
         mode = null;
-        selectedMode = 0;
-        modeButtons.forEach((button, index) => button.setAttribute('aria-checked', String(index === 0)));
         modeScreen.hidden = false;
       } else if (open === door) {
         if (phase === 'view') {
@@ -354,15 +353,23 @@
             narrative.textContent = dialogueLines[dialogueIndex];
           } else if (completeAfterDialogue) {
             narrative.hidden = true;
-            phase = 'opening';
-            view.classList.add('lifting');
-            setTimeout(() => {
+            if (mode === 'instant') {
               closeOverlay();
               doorOpen = true;
               doorway.hidden = false;
               door.element.classList.add('open');
               render();
-            }, 1200);
+            } else {
+              phase = 'opening';
+              view.classList.add('lifting');
+              setTimeout(() => {
+                closeOverlay();
+                doorOpen = true;
+                doorway.hidden = false;
+                door.element.classList.add('open');
+                render();
+              }, 1200);
+            }
           } else {
             closeOverlay();
           }
@@ -381,11 +388,23 @@
         if (isDoor) {
           phase = 'view';
           if (mode === 'instant') {
-            held.forEach(name => placed.add(name));
+            const newlyPlaced = [...held];
+            newlyPlaced.forEach(name => placed.add(name));
             held = [];
             renderInventory();
             drawPlaced();
-            startDialogue(levels[levelIndex].items.every(name => placed.has(name)));
+            if (newlyPlaced.length) {
+              phase = 'animating';
+              newlyPlaced.forEach(name => {
+                const element = placedArea.querySelector(`[data-item="${name}"]`);
+                if (element) element.classList.add('fading');
+              });
+              setTimeout(() => {
+                startDialogue(levels[levelIndex].items.every(name => placed.has(name)));
+              }, 1500);
+            } else {
+              startDialogue(levels[levelIndex].items.every(name => placed.has(name)));
+            }
           } else {
             drawPlaced();
           }
@@ -397,6 +416,12 @@
           preview.replaceChildren(skullImage);
         } else {
           preview.textContent = open.name;
+        }
+        if (!isDoor && mode === 'instant') {
+          const caption = document.createElement('span');
+          caption.className = 'item-acquired';
+          caption.textContent = 'Acquired: ' + open.name;
+          preview.append(caption);
         }
         overlay.setAttribute('aria-label', isDoor ? '门界面' : open.name + '，按 E 拾取');
         overlay.hidden = false;
@@ -453,15 +478,9 @@
     }
     window.addEventListener('keydown', event => {
       if (mode === null) {
-        if (event.code === 'KeyW' || event.code === 'KeyS') {
+        if (event.code === 'KeyE') {
           event.preventDefault();
-          if (!event.repeat) {
-            selectedMode = selectedMode === 0 ? 1 : 0;
-            modeButtons.forEach((button, index) => button.setAttribute('aria-checked', String(index === selectedMode)));
-          }
-        } else if (event.code === 'KeyE') {
-          event.preventDefault();
-          if (!event.repeat) chooseMode(selectedMode);
+          if (!event.repeat) startGame();
         }
         return;
       }
