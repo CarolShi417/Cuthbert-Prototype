@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>门交互原型</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      background: #fdfdfd;
+      color: #111;
+      font-family: system-ui, sans-serif;
+    }
+    .scene {
+      position: relative;
+      z-index: 0;
+      width: min(420px, 67vw, 86dvh);
+      aspect-ratio: 420 / 440;
+      border: 1px solid #2446bf;
+    }
+    .floor {
+      position: absolute;
+      inset: 28% 0 0;
+      box-shadow: inset 0 1px #2446bf;
+    }
+    .door, .pickup, .player { position: absolute; }
+    .door {
+      bottom: 100%;
+      left: 50%;
+      width: min(63px, 20%);
+      aspect-ratio: 63 / 70;
+      transform: translateX(-50%);
+      border: 1px solid #294fa1;
+      background: #456dc0;
+    }
+    .prompt {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .player {
+      width: min(41px, 12%);
+      aspect-ratio: 1;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: #ff0000;
+    }
+    .pickup {
+      transform: translate(-50%, -50%);
+      font-size: clamp(11px, 2.6vw, 16px);
+    }
+    .pickup-image { display:block; width:72px; max-width:17vw; height:72px; object-fit:contain; }
+    .item-label {
+      display: block;
+      border: 1px solid currentColor;
+      padding: 3px 7px;
+      background: #fff;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      display: grid;
+      place-items: center;
+      background: #fff;
+    }
+    .item-preview {
+      padding: 0.32em 0.60em;
+      font-size: clamp(38px, 10vw, 92px);
+    }
+    .inventory {
+      position: fixed;
+      top: 50%;
+      left: clamp(4px, 1.5vw, 20px);
+      z-index: 2;
+      transform: translateY(-50%);
+      font-size: clamp(10px, 2.2vw, 14px);
+    }
+    .inventory-slots {
+      display: grid;
+      gap: clamp(3px, 1dvh, 8px);
+      width: clamp(52px, 14vw, 100px);
+      padding: 6px;
+      border: 1px solid #111;
+      background: #fff;
+    }
+    .inventory-slot {
+      min-height: clamp(21px, 4.5dvh, 34px);
+      display: grid;
+      place-items: center;
+      padding: 2px 0;
+    }
+    .inventory-slot:empty { border-color: #aaa; }
+    .inventory-slot img { display:block; width:42px; max-width:100%; height:42px; object-fit:contain; }
+    .item-preview img { display:block; width:min(340px,70vw,65dvh); height:min(340px,70vw,65dvh); object-fit:contain; }
+    .placed.eyeball { width:2.8%; aspect-ratio:1; border-radius:50%; background:#c3d8e3; border:1px solid #344958; box-shadow:inset 0 0 0 3px #e8f1f4; }
+    .player { z-index: 2; }
+    .door { transition: transform .8s; z-index: 1; }
+    .door.open { transform: translate(-50%, -100%); }
+    .doorway { position:absolute; bottom:100%; left:50%; width:min(63px,20%); aspect-ratio:63/70; transform:translateX(-50%); background:#333; }
+    .door-view { position:relative; height:min(90dvh,125vw); max-width:75vw; }
+    .door-view > img { display:block; height:100%; max-width:100%; object-fit:contain; }
+    .placed { position:absolute; transform:translate(-50%,-50%); }
+    .placed.skull { width:18%; }
+    .narrative { position:fixed; left:50%; bottom:5%; transform:translateX(-50%); width:min(650px,70vw); min-height:95px; border:2px solid #333; background:#fff; padding:20px 24px; font-size:clamp(16px,2vw,22px); }
+    .ending { padding:28px; border:2px solid #333; background:#fff; text-align:center; font-size:clamp(16px,2vw,22px); }
+    .ending p { margin:0 0 16px; }
+    .ending small { font-size:14px; }
+    .narrative::after { content:"E"; position:absolute; right:16px; bottom:10px; font-size:14px; }
+    @keyframes lift { 0%,40%,80%,100% { transform:translateY(0); } 20%,60% { transform:translateY(-12px); } }
+    .door-view.lifting { animation:lift 1.2s ease-in-out; }
+    [hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <main class="scene" aria-label="门交互原型">
+    <div class="floor" id="floor">
+      <div class="doorway" id="doorway" hidden></div>
+      <div class="door" id="door" aria-label="蓝色的门">
+        <span class="prompt" hidden>E</span>
+      </div>
+      <div class="player" id="player" aria-label="玩家"></div>
+    </div>
+  </main>
+  <div class="overlay" id="overlay" role="dialog" hidden>
+    <span class="item-label item-preview" id="item-preview" hidden></span>
+    <div class="ending" id="ending" hidden><p>More levels are under construction. Would you like to restart?</p><small>E — Restart　 A — Stay</small></div>
+    <div class="door-view" id="door-view" hidden>
+      <img id="door-image" src="doorL1.png" alt="门的细节">
+      <div id="placed-items"></div>
+      <div class="narrative" id="narrative" hidden></div>
+    </div>
+  </div>
+  <aside class="inventory" aria-label="物品栏">
+    <div class="inventory-slots" id="inventory-slots" aria-live="polite"></div>
+  </aside>
+  <script>
+    const floor = document.getElementById('floor');
+    const player = document.getElementById('player');
+    const overlay = document.getElementById('overlay');
+    const preview = document.getElementById('item-preview');
+    const inventory = document.getElementById('inventory-slots');
+    const view = document.getElementById('door-view');
+    const ending = document.getElementById('ending');
+    const image = document.getElementById('door-image');
+    const placedArea = document.getElementById('placed-items');
+    const narrative = document.getElementById('narrative');
+    const doorway = document.getElementById('doorway');
+    const position = {x: .5, y: .5};
+    const keys = new Set();
+    const movementKeys = new Set(['KeyW','KeyA','KeyS','KeyD']);
+    const levels = [
+      {image:'doorL1.png', items:['skull','item1','item2'],
+       slots:[{x:49,y:33},{x:20.5,y:85.5},{x:80,y:73.5}]},
+      {image:'doorL2 2.0.png', items:['eyeball1','item3','item4'],
+       slots:[{x:46.8,y:32.4},{x:19,y:58},{x:80,y:51}]},
+      {image:'doorL3 2.0.png', items:['eyeball2','item5'],
+       slots:[{x:53,y:32.4},{x:73,y:20}]},
+      {image:'doorL4 2.0.png', items:['eyeball3','item6'],
+       slots:[{x:46.8,y:34.5},{x:22,y:34}]}
+    ];
+    const locations = [{x:.23,y:.32},{x:.76,y:.43},{x:.47,y:.79}];
+    const door = {x:.5,y:0,element:document.getElementById('door')};
+    door.prompt = door.element.querySelector('.prompt');
+    let levelIndex = 0, items = [], slots = [], targets = [];
+    let held = [], placed = new Set(), nearby = null, open = null;
+    let phase = '', doorOpen = false, previousTime = null;
+    let dialogueLines = [], dialogueIndex = 0, completeAfterDialogue = false;
+
+    function place(element, location) {
+      element.style.left = location.x * 100 + '%';
+      element.style.top = location.y * 100 + '%';
+    }
+    function renderInventory() {
+      slots.forEach((slot, index) => {
+        const name = held[index];
+        slot.replaceChildren();
+        if (name === 'skull') {
+          const image = document.createElement('img');
+          image.src = 'skull-four-eyes.png';
+          image.alt = 'skull';
+          slot.append(image);
+        } else {
+          slot.textContent = name || '';
+        }
+      });
+    }
+    function drawPlaced() {
+      placedArea.replaceChildren();
+      for (let levelNumber = 0; levelNumber <= levelIndex; levelNumber++) {
+        const sourceLevel = levels[levelNumber];
+        sourceLevel.items.forEach((name, index) => {
+          if (!placed.has(name)) return;
+          if (name === 'skull' && levelIndex > 0) return;
+          const element = document.createElement(name === 'skull' ? 'img' : 'span');
+          const isEyeball = name.startsWith('eyeball');
+          element.className = name === 'skull' ? 'placed skull' : isEyeball ? 'placed eyeball' : 'placed item-label';
+          if (name === 'skull') {
+            element.src = 'skull-four-eyes.png';
+            element.alt = 'skull';
+          } else if (isEyeball) {
+            element.setAttribute('aria-label', name);
+          } else {
+            element.textContent = name;
+          }
+          let location = sourceLevel.slots[index];
+          if (levelNumber === 0 && levelIndex > 0) {
+            location = [{x:50,y:32},{x:24,y:85},{x:78.5,y:73}][index];
+          }
+          element.style.left = location.x + '%';
+          element.style.top = location.y + '%';
+          placedArea.append(element);
+        });
+      }
+    }
+    function loadLevel(index) {
+      items.forEach(item => item.element.remove());
+      levelIndex = index;
+      held = [];
+      inventory.replaceChildren();
+      placedArea.replaceChildren();
+      const level = levels[index];
+      slots = level.items.map(() => {
+        const slot = document.createElement('span');
+        slot.className = 'item-label inventory-slot';
+        inventory.append(slot);
+        return slot;
+      });
+      items = level.items.map((name, index) => {
+        const element = document.createElement('div');
+        element.className = 'pickup';
+        place(element, locations[index]);
+        const label = document.createElement(name === 'skull' ? 'img' : 'span');
+        if (name === 'skull') {
+          label.className = 'pickup-image';
+          label.src = 'skull-four-eyes.png';
+          label.alt = 'skull';
+        } else {
+          label.className = 'item-label';
+          label.textContent = name;
+        }
+        const prompt = document.createElement('span');
+        prompt.className = 'prompt';
+        prompt.textContent = 'E';
+        prompt.hidden = true;
+        element.append(label, prompt);
+        floor.append(element);
+        return {...locations[index], name, element, prompt};
+      });
+      targets = [door, ...items];
+      image.src = level.image;
+      doorOpen = false;
+      door.element.classList.remove('open');
+      doorway.hidden = true;
+      position.x = .5;
+      position.y = .5;
+      keys.clear();
+      render();
+    }
+    function render() {
+      place(player, position);
+      nearby = null;
+      if (!open) {
+        const {width, height} = floor.getBoundingClientRect();
+        let best = Math.min(56, width * .24);
+        for (const target of targets) {
+          if (target.element.hidden || (target === door && doorOpen)) continue;
+          const distance = Math.hypot((position.x-target.x)*width, (position.y-target.y)*height);
+          if (distance <= best) { nearby = target; best = distance; }
+        }
+      }
+      targets.forEach(target => {target.prompt.hidden = target !== nearby;});
+    }
+    function closeOverlay() {
+      open = null;
+      ending.hidden = true;
+      overlay.hidden = true;
+      view.classList.remove('lifting');
+      phase = '';
+      keys.clear();
+      render();
+    }
+    function startDialogue(complete) {
+      completeAfterDialogue = complete;
+      const currentPlaced = levels[levelIndex].items.some(name => placed.has(name));
+      const text = complete || !currentPlaced ? 'narrative words' : 'narrative lost words';
+      dialogueLines = [text + ' 1', text + ' 2'];
+      dialogueIndex = 0;
+      narrative.textContent = dialogueLines[dialogueIndex];
+      narrative.hidden = false;
+      phase = 'message';
+    }
+    function interact() {
+      if (open === 'ending') {
+        placed = new Set();
+        closeOverlay();
+        loadLevel(0);
+      } else if (open === door) {
+        if (phase === 'view') {
+          if (held.length > 0) {
+            placed.add(held.shift());
+            renderInventory();
+            drawPlaced();
+          }
+          if (held.length === 0) {
+            startDialogue(levels[levelIndex].items.every(name => placed.has(name)));
+          }
+        } else if (phase === 'message') {
+          dialogueIndex += 1;
+          if (dialogueIndex < dialogueLines.length) {
+            narrative.textContent = dialogueLines[dialogueIndex];
+          } else if (completeAfterDialogue) {
+            narrative.hidden = true;
+            phase = 'opening';
+            view.classList.add('lifting');
+            setTimeout(() => {
+              closeOverlay();
+              doorOpen = true;
+              doorway.hidden = false;
+              door.element.classList.add('open');
+              render();
+            }, 1200);
+          } else {
+            closeOverlay();
+          }
+        }
+      } else if (open) {
+        held.push(open.name);
+        open.element.hidden = true;
+        renderInventory();
+        closeOverlay();
+      } else if (nearby) {
+        open = nearby;
+        const isDoor = open === door;
+        preview.hidden = isDoor;
+        view.hidden = !isDoor;
+        narrative.hidden = true;
+        if (isDoor) { phase = 'view'; drawPlaced(); }
+        else if (open.name === 'skull') {
+          const skullImage = document.createElement('img');
+          skullImage.src = 'skull-four-eyes.png';
+          skullImage.alt = 'skull';
+          preview.replaceChildren(skullImage);
+        } else {
+          preview.textContent = open.name;
+        }
+        overlay.setAttribute('aria-label', isDoor ? '门界面' : open.name + '，按 E 拾取');
+        overlay.hidden = false;
+      }
+      keys.clear();
+      render();
+    }
+    function showEnding() {
+      open = 'ending';
+      preview.hidden = true;
+      view.hidden = true;
+      ending.hidden = false;
+      overlay.setAttribute('aria-label', 'More levels are under construction. Would you like to restart?');
+      overlay.hidden = false;
+      keys.clear();
+      render();
+    }
+    function clamp(value, margin) {
+      return Math.max(margin, Math.min(1-margin, value));
+    }
+    function update(time) {
+      const elapsed = previousTime === null ? 0 : Math.min((time-previousTime)/1000, .05);
+      previousTime = time;
+      const dx = Number(keys.has('KeyD'))-Number(keys.has('KeyA'));
+      const dy = Number(keys.has('KeyS'))-Number(keys.has('KeyW'));
+      const magnitude = Math.hypot(dx,dy);
+      if (!open && magnitude > 0) {
+        const distance = 155 * elapsed / magnitude;
+        const radius = player.getBoundingClientRect().width/2;
+        const {width,height} = floor.getBoundingClientRect();
+        const halfDoor = Math.min(63,width*.2)/2;
+        const nextX = clamp(position.x + dx*distance/width, radius/width);
+        const corridorLimit = (halfDoor-radius)/width;
+        position.x = position.y < radius/height
+          ? Math.max(.5-corridorLimit, Math.min(.5+corridorLimit, nextX)) : nextX;
+        const nextY = position.y + dy*distance/height;
+        const inPassage = Math.abs(position.x-.5) <= corridorLimit;
+        if (doorOpen && inPassage) {
+          const doorHeight = halfDoor * 2 * 70 / 63;
+          position.y = Math.min(1-radius/height, nextY);
+          if (position.y <= -doorHeight/2/height) {
+            if (levelIndex + 1 < levels.length) {
+              loadLevel(levelIndex+1);
+            } else {
+              showEnding();
+            }
+          }
+        } else {
+          position.y = clamp(nextY,radius/height);
+        }
+        render();
+      }
+      requestAnimationFrame(update);
+    }
+    window.addEventListener('keydown', event => {
+      if (open === 'ending' && event.code === 'KeyA') {
+        event.preventDefault();
+        position.y = .5;
+        closeOverlay();
+      } else if (event.code === 'KeyE') {
+        event.preventDefault();
+        if (!event.repeat && (open || nearby)) interact();
+      } else if (movementKeys.has(event.code)) {
+        event.preventDefault();
+        if (!open && !event.repeat) keys.add(event.code);
+      }
+    });
+    window.addEventListener('keyup', event => keys.delete(event.code));
+    window.addEventListener('blur', () => keys.clear());
+    window.addEventListener('resize', render);
+    loadLevel(0);
+    requestAnimationFrame(update);
+</script>
+</body>
+</html>
