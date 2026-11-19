@@ -112,6 +112,12 @@
     .placed { position:absolute; transform:translate(-50%,-50%); }
     .placed.skull { width:18%; }
     .narrative { position:fixed; left:50%; bottom:5%; transform:translateX(-50%); width:min(650px,70vw); min-height:95px; border:2px solid #333; background:#fff; padding:20px 24px; font-size:clamp(16px,2vw,22px); }
+    .mode-screen { position:fixed; inset:0; z-index:3; display:grid; place-items:center; background:#fff; }
+    .mode-panel { display:grid; gap:14px; width:min(340px,85vw); text-align:center; }
+    .mode-panel h1 { margin:0 0 8px; font-size:22px; }
+    .mode-panel button { padding:14px; border:1px solid #333; background:#fff; font:inherit; cursor:pointer; }
+    .mode-panel button[aria-checked="true"] { background:#456dc0; color:#fff; }
+    .mode-panel p { margin:0; font-size:14px; color:#555; }
     .ending { padding:28px; border:2px solid #333; background:#fff; text-align:center; font-size:clamp(16px,2vw,22px); }
     .ending p { margin:0 0 16px; }
     .ending small { font-size:14px; }
@@ -122,6 +128,14 @@
   </style>
 </head>
 <body>
+  <div class="mode-screen" id="mode-screen" role="dialog" aria-label="选择放置方式" aria-modal="true">
+    <div class="mode-panel" role="radiogroup" aria-label="请选择">
+      <h1>请选择</h1>
+      <button type="button" role="radio" aria-checked="true" id="mode-instant">无放道具动作</button>
+      <button type="button" role="radio" aria-checked="false" id="mode-manual">有放道具动作</button>
+      <p>W / S 选择，E 确认</p>
+    </div>
+  </div>
   <main class="scene" aria-label="门交互原型">
     <div class="floor" id="floor">
       <div class="doorway" id="doorway" hidden></div>
@@ -144,6 +158,8 @@
     <div class="inventory-slots" id="inventory-slots" aria-live="polite"></div>
   </aside>
   <script>
+    const modeScreen = document.getElementById('mode-screen');
+    const modeButtons = [document.getElementById('mode-instant'), document.getElementById('mode-manual')];
     const floor = document.getElementById('floor');
     const player = document.getElementById('player');
     const overlay = document.getElementById('overlay');
@@ -172,6 +188,7 @@
     const door = {x:.5,y:0,element:document.getElementById('door')};
     door.prompt = door.element.querySelector('.prompt');
     let levelIndex = 0, items = [], slots = [], targets = [];
+    let mode = null, selectedMode = 0;
     let held = [], placed = new Set(), nearby = null, open = null;
     let phase = '', doorOpen = false, previousTime = null;
     let dialogueLines = [], dialogueIndex = 0, completeAfterDialogue = false;
@@ -299,11 +316,28 @@
       narrative.hidden = false;
       phase = 'message';
     }
+    function chooseMode(index) {
+      selectedMode = index;
+      mode = index === 0 ? 'instant' : 'manual';
+      modeButtons.forEach((button, buttonIndex) => {
+        button.setAttribute('aria-checked', String(buttonIndex === selectedMode));
+      });
+      modeScreen.hidden = true;
+      keys.clear();
+      render();
+    }
+    modeButtons.forEach((button, index) => {
+      button.addEventListener('click', () => chooseMode(index));
+    });
     function interact() {
       if (open === 'ending') {
         placed = new Set();
         closeOverlay();
         loadLevel(0);
+        mode = null;
+        selectedMode = 0;
+        modeButtons.forEach((button, index) => button.setAttribute('aria-checked', String(index === 0)));
+        modeScreen.hidden = false;
       } else if (open === door) {
         if (phase === 'view') {
           if (held.length > 0) {
@@ -344,7 +378,18 @@
         preview.hidden = isDoor;
         view.hidden = !isDoor;
         narrative.hidden = true;
-        if (isDoor) { phase = 'view'; drawPlaced(); }
+        if (isDoor) {
+          phase = 'view';
+          if (mode === 'instant') {
+            held.forEach(name => placed.add(name));
+            held = [];
+            renderInventory();
+            drawPlaced();
+            startDialogue(levels[levelIndex].items.every(name => placed.has(name)));
+          } else {
+            drawPlaced();
+          }
+        }
         else if (open.name === 'skull') {
           const skullImage = document.createElement('img');
           skullImage.src = 'skull-four-eyes.png';
@@ -407,6 +452,19 @@
       requestAnimationFrame(update);
     }
     window.addEventListener('keydown', event => {
+      if (mode === null) {
+        if (event.code === 'KeyW' || event.code === 'KeyS') {
+          event.preventDefault();
+          if (!event.repeat) {
+            selectedMode = selectedMode === 0 ? 1 : 0;
+            modeButtons.forEach((button, index) => button.setAttribute('aria-checked', String(index === selectedMode)));
+          }
+        } else if (event.code === 'KeyE') {
+          event.preventDefault();
+          if (!event.repeat) chooseMode(selectedMode);
+        }
+        return;
+      }
       if (open === 'ending' && event.code === 'KeyA') {
         event.preventDefault();
         position.y = .5;
